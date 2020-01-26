@@ -1,3 +1,6 @@
+"""
+source code from original repo, need to simplify it (exclude training part)
+"""
 from config import get_arguments
 from SinGAN.manipulate import *
 from SinGAN.training import *

@@ -227,7 +227,7 @@ def creat_reals_pyramid(real,reals,opt):
     return reals
 
 
-def load_trained_pyramid(opt, mode_='train'):
+def load_trained_pyramid(opt, mode = 'train'):
     #dir = 'TrainedModels/%s/scale_factor=%f' % (opt.input_name[:-4], opt.scale_factor_init)
     mode = opt.mode
     opt.mode = 'train'

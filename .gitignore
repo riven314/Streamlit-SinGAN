@@ -1,3 +1,5 @@
 /ref/yolov3.cfg
 /ref/yolov3.weights
 /SinGAN/__pycache__
+/.vscode
+/Output
