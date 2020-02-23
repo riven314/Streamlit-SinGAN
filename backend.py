@@ -109,6 +109,7 @@ for G, Z_opt, noise_amp, real in zip(Gs, Zs, NoiseAmp, reals):
         z_in = noise_amp*z_curr+I_prev
         I_curr = G(z_in.detach(),I_prev)
 
+        # convert result from GPU to CPU at last iteration
         if (count == len(Gs)-1):
             I_curr = functions.denorm(I_curr).detach()
             I_curr = I_curr[0,:,:,:].cpu().numpy()
@@ -119,10 +120,16 @@ for G, Z_opt, noise_amp, real in zip(Gs, Zs, NoiseAmp, reals):
     # count = 10 at the end
     count += 1
     # can be kick out
-dir2save = functions.generate_dir2save(opt)
-try:
-    os.makedirs('%s/start_scale=%d' % (dir2save,start_scale) )
-except OSError:
-    pass
-imageio.mimsave('%s/start_scale=%d/alpha=%f_beta=%f__.gif' % (dir2save,start_scale,alpha,beta),images_cur,fps = 10)
-del images_cur
+
+def save_gif(opt, images_cur, alpha, beta):
+    """
+    images_cur is a list of time series images in same scale
+    """
+    dir2save = functions.generate_dir2save(opt)
+    save_dir = os.path.join(f'{dir2save}', f'start_scale={start_scale:.2d}')
+    try:
+        os.makedirs(save_dir)
+    except OSError:
+        pass
+    gif_path = os.path.join(save_dir, f'alpha={alpha:.2f}_beta={beta:.2f}__.gif')
+    imageio.mimsave(gif_path, images_cur, fps = 10)
