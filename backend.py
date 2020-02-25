@@ -2,11 +2,7 @@
 build backend pipeline for model computation
 
 ISSUES:
-1. why images_cur result different from original results?
-
-NOTES:
-1. how the animation algo loop?
-    - outer loop: generator axis (from coarse to fine); inner loop: frame axis
+1. why frames_curr result different from original results?
 
 REFERENCE:
 1. f-string examples: http://zetcode.com/python/fstring/
@@ -15,6 +11,7 @@ REFERENCE:
 import os
 import sys
 from pathlib import Path
+from collections import defaultdict
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -25,6 +22,10 @@ from easydict import EasyDict as edict
 from SinGAN.manipulate import *
 from SinGAN.imresize import imresize
 import SinGAN.functions as functions
+
+from compute import compute_z_curr, compute_z_prev, compute_z_diff
+from utils import tensor_to_np
+
 
 # 1. Setup Parameters
 opt = edict()
@@ -43,7 +44,7 @@ num_layer = 5
 nc_z = 3 # noise channel no.
 alpha = 0.1
 beta = 0.95
-start_scale = 1
+scale_start = 1
 
 
 # 2. Load in Models
@@ -62,74 +63,59 @@ NoiseAmp = torch.load(dir2save / 'NoiseAmp.pth') # list of NoiseAmp
 
 
 # 3. Generate GIFs (varying beta && start_scale)
-in_s = torch.full(Zs[0].shape, 0, device = device)
-images_cur = []
-count = 0
+def cache_input_output(Gs, Zs, NoiseAmp, reals, scale_in = None, scale_out = None):
+    """
+    cache time-series input at scale i, and time-series output at scale j.
+    both i and j start at 0 index
 
-for G, Z_opt, noise_amp, real in zip(Gs, Zs, NoiseAmp, reals):
-    pad_image = int(((ker_size - 1) * num_layer) / 2) # what it means??
-    nzx = Z_opt.shape[2]
-    nzy = Z_opt.shape[3]
+    :output:
+        cache_dict -- dict, {
+            'input': list of time-series np.array, 
+            'output': list of time-series np.array
+            }
+    """
+    cache_dict = defaultdict(list)
+    # by default cache first scale input and final scale output
+    scale_in = 0 if scale_in is None else scale_in
+    scale_out = len(Gs) -1 if scale_out is None else scale_out
+    # create layer for boarder padding
+    pad_image = int(((ker_size - 1) * num_layer) / 2)
     m_image = nn.ZeroPad2d(int(pad_image))
-    images_prev = images_cur
-    images_cur = []
-    if count == 0:
-        # z_rand is gaussian noise
-        z_rand = functions.generate_noise([1, nzx, nzy], device= device) 
-        z_rand = z_rand.expand(1, 3, Z_opt.shape[2], Z_opt.shape[3])
-        z_prev1 = 0.95 * Z_opt +0.05 * z_rand
-        z_prev2 = Z_opt
-    else:
-        z_prev1 = 0.95*Z_opt +0.05*functions.generate_noise([nc_z,nzx,nzy], device = device)
-        z_prev2 = Z_opt
+    in_s = torch.full(Zs[0].shape, 0, device = device)
+    frames_curr = []
+    # out loop is scale iteration
+    for scale_n, (G, Z_opt, noise_amp, real) in enumerate(zip(Gs, Zs, NoiseAmp, reals)):
+        frames_prev = frames_curr
+        frames_curr = []
+        z_prev1, z_prev2 = compute_z_prev(scale_n, Z_opt, device)
+        # inner loop is time iteration
+        for t in range(0, 100, 1):
+            z_diff = compute_z_diff(scale_n, Z_opt, z_prev1, z_prev2, beta, device)
+            z_curr = compute_z_curr(Z_opt, z_prev1, z_diff, alpha)
+            z_prev2 = z_prev1
+            z_prev1 = z_curr
+            # overwrite z_curr if init at higher scale
+            if scale_n < scale_start:
+                z_curr = Z_opt
+            if frames_prev == []:
+                I_prev = in_s
+            else:
+                I_prev = frames_prev[t]
+                I_prev = imresize(I_prev, 1 / scale_factor, opt) # edit
+                I_prev = I_prev[:, :, 0:real.shape[2], 0:real.shape[3]]
+                I_prev = m_image(I_prev)
+            z_in = noise_amp * z_curr + I_prev
+            I_curr = G(z_in.detach(), I_prev)
+            frames_curr.append(I_curr)
+            # cache results
+            if scale_n == scale_in:
+                z_in = tensor_to_np(z_in)
+                cache_dict['input'].append(z_in)
+            if scale_n == scale_out:
+                I_curr = tensor_to_np(I_curr)
+                cache_dict['output'].append(I_curr)
+    return cache_dict
 
-    for i in range(0,100,1):
-        if count == 0:
-            z_rand = functions.generate_noise([1,nzx,nzy], device = device)
-            # make z_rand same across channels
-            z_rand = z_rand.expand(1,3, Z_opt.shape[2], Z_opt.shape[3])
-            diff_curr = beta*(z_prev1-z_prev2)+(1-beta)*z_rand
-        else:
-            diff_curr = beta*(z_prev1-z_prev2)+(1-beta)*(functions.generate_noise([nc_z,nzx,nzy], device = device))
 
-        z_curr = alpha*Z_opt+(1-alpha)*(z_prev1+diff_curr)
-        z_prev2 = z_prev1
-        z_prev1 = z_curr
-
-        if images_prev == []:
-            I_prev = in_s
-        else:
-            I_prev = images_prev[i]
-            I_prev = imresize(I_prev, 1 / scale_factor, opt) # edit
-            I_prev = I_prev[:, :, 0:real.shape[2], 0:real.shape[3]]
-            I_prev = m_image(I_prev)
-        if count < start_scale:
-            z_curr = Z_opt
-
-        z_in = noise_amp*z_curr+I_prev
-        I_curr = G(z_in.detach(),I_prev)
-
-        # convert result from GPU to CPU at last iteration
-        if (count == len(Gs)-1):
-            I_curr = functions.denorm(I_curr).detach()
-            I_curr = I_curr[0,:,:,:].cpu().numpy()
-            I_curr = I_curr.transpose(1, 2, 0)*255
-            I_curr = I_curr.astype(np.uint8)
-
-        images_cur.append(I_curr)
-    # count = 10 at the end
-    count += 1
-    # can be kick out
-
-def save_gif(opt, images_cur, alpha, beta):
-    """
-    images_cur is a list of time series images in same scale
-    """
-    dir2save = functions.generate_dir2save(opt)
-    save_dir = os.path.join(f'{dir2save}', f'start_scale={start_scale:.2d}')
-    try:
-        os.makedirs(save_dir)
-    except OSError:
-        pass
-    gif_path = os.path.join(save_dir, f'alpha={alpha:.2f}_beta={beta:.2f}__.gif')
-    imageio.mimsave(gif_path, images_cur, fps = 10)
+if __name__ == '__main__':
+    cache_dict = cache_input_output(Gs, Zs, NoiseAmp, reals, scale_in = None, scale_out = None)
