@@ -26,6 +26,10 @@ import SinGAN.functions as functions
 from compute import compute_z_curr, compute_z_prev, compute_z_diff
 from utils import tensor_to_np
 
+import streamlit as st
+import time
+import itertools
+
 
 # 1. Setup Parameters
 opt = edict()
@@ -117,5 +121,19 @@ def cache_input_output(Gs, Zs, NoiseAmp, reals, scale_in = None, scale_out = Non
     return cache_dict
 
 
+#front-end interface
+def image_display(cache_dict):
+    st.title('Streamlit implementation if SinGAN')
+    st.write("Here's our first attempt at implementing backend with streamlit integration for image display")
+    imageLocation_input = st.empty()
+    imageLocation_output = st.empty()
+ 
+    for (i, o) in zip(cache_dict['input'], cache_dict['output']):
+        imageLocation_input.image(i)
+        imageLocation_output.image(o, channels="RGB")
+        time.sleep(0.3)
+        
 if __name__ == '__main__':
     cache_dict = cache_input_output(Gs, Zs, NoiseAmp, reals, scale_in = None, scale_out = None)
+    #call function for front-end display
+    image_display(cache_dict)
