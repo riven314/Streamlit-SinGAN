@@ -33,7 +33,7 @@ import itertools
 
 # 1. Setup Parameters
 opt = edict()
-opt.not_cuda = False if torch.cuda.is_available else True
+opt.not_cuda = False if torch.cuda.is_available() else True
 opt.nc_im = 3 # image channels no. 
 opt.mode = 'animation'
 opt.out = 'Output'
@@ -42,7 +42,7 @@ opt.input_name = 'lightning1'
 scale_factor = 0.75 # determine no. of levels in hierarchy
 input_name = opt.input_name # folder name
 dir2save = Path(f'TrainedModels/{input_name}/scale_factor={scale_factor:.6f}_noise_padding')
-device = torch.device('cuda' if torch.cuda.is_available else 'cpu')
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 ker_size = 3
 num_layer = 5
 nc_z = 3 # noise channel no.
@@ -113,8 +113,9 @@ def cache_input_output(Gs, Zs, NoiseAmp, reals, scale_in = None, scale_out = Non
             frames_curr.append(I_curr)
             # cache results
             if scale_n == scale_in:
-                z_in = tensor_to_np(z_in)
-                cache_dict['input'].append(z_in)
+                z_in_np = tensor_to_np(z_in)
+                cache_dict['input'].append(z_in_np)
+                #cache_dict['input_x'].append(z_in)
             if scale_n == scale_out:
                 I_curr = tensor_to_np(I_curr)
                 cache_dict['output'].append(I_curr)
@@ -132,7 +133,8 @@ def image_display(cache_dict):
         imageLocation_input.image(i)
         imageLocation_output.image(o, channels="RGB")
         time.sleep(0.3)
-        
+
+
 if __name__ == '__main__':
     cache_dict = cache_input_output(Gs, Zs, NoiseAmp, reals, scale_in = None, scale_out = None)
     #call function for front-end display
