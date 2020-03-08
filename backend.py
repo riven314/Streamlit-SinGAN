@@ -10,14 +10,13 @@ REFERENCE:
 """
 import os
 import sys
-from pathlib import Path
+import itertools
 from collections import defaultdict
 
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
-from easydict import EasyDict as edict
 
 from SinGAN.manipulate import *
 from SinGAN.imresize import imresize
@@ -26,37 +25,8 @@ import SinGAN.functions as functions
 from compute import compute_z_curr, compute_z_prev, compute_z_diff
 from utils import tensor_to_np
 
-import streamlit as st
-import time
-import itertools
 
-
-# 1. Setup Parameters
-opt = edict()
-opt.not_cuda = False if torch.cuda.is_available() else True
-opt.nc_im = 3 # image channels no. 
-opt.mode = 'animation'
-opt.out = 'Output'
-opt.input_name = 'lightning1'
-
-scale_factor = 0.75 # determine no. of levels in hierarchy
-input_name = opt.input_name # folder name
-dir2save = Path(f'TrainedModels/{input_name}/scale_factor={scale_factor:.6f}_noise_padding')
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-ker_size = 3
-num_layer = 5
-
-
-# 2. Load in Models
-assert os.path.isdir(dir2save), f'[ERROR] dir not exist: {dir2save}'
-Gs = torch.load(dir2save / 'Gs.pth') # list of generators (by scales)
-Zs = torch.load(dir2save / 'Zs.pth') # list of noise (by scales)
-reals = torch.load(dir2save / 'reals.pth') # list of real image patches
-NoiseAmp = torch.load(dir2save / 'NoiseAmp.pth') # list of NoiseAmp
-
-
-# 3. Generate GIFs (varying beta && start_scale)
-def cache_input_output(Gs, Zs, NoiseAmp, reals, alpha = 0.1, beta = 0.95, scale_start = 0, device = device):
+def cache_model_inputs_outputs(opt, device, alpha = 0.1, beta = 0.95, scale_start = 0):
     """
     cache time-series input at scale i, and time-series output at scale j.
     both i and j start at 0 index
@@ -79,9 +49,10 @@ def cache_input_output(Gs, Zs, NoiseAmp, reals, alpha = 0.1, beta = 0.95, scale_
             }, ...
             }
     """
+    Gs, Zs, reals, NoiseAmp = opt.Gs, opt.Zs, opt.reals, opt.NoiseAmp
     cache_dict = defaultdict(lambda: defaultdict(list))
     # create layer for boarder padding
-    pad_image = int(((ker_size - 1) * num_layer) / 2)
+    pad_image = int(((opt.ker_size - 1) * opt.num_layer) / 2)
     m_image = nn.ZeroPad2d(int(pad_image))
     in_s = torch.full(Zs[0].shape, 0, device = device)
     frames_curr = []
@@ -103,7 +74,7 @@ def cache_input_output(Gs, Zs, NoiseAmp, reals, alpha = 0.1, beta = 0.95, scale_
                 I_prev = in_s
             else:
                 I_prev = frames_prev[t]
-                I_prev = imresize(I_prev, 1 / scale_factor, opt) # edit
+                I_prev = imresize(I_prev, 1 / opt.scale_factor, opt) # edit
                 I_prev = I_prev[:, :, 0:real.shape[2], 0:real.shape[3]]
                 I_prev = m_image(I_prev)
             z_in = noise_amp * z_curr + I_prev
@@ -116,21 +87,3 @@ def cache_input_output(Gs, Zs, NoiseAmp, reals, alpha = 0.1, beta = 0.95, scale_
             cache_dict[scale_n]['output'].append(I_curr_np)
     return cache_dict
 
-
-#front-end interface
-def image_display(cache_dict, input_scale = 0, output_scale = 9):
-    st.title('Streamlit implementation if SinGAN')
-    st.write("Here's our first attempt at implementing backend with streamlit integration for image display")
-    imageLocation_input = st.empty()
-    imageLocation_output = st.empty()
- 
-    for (i, o) in zip(cache_dict[input_scale]['input'], cache_dict[output_scale]['output']):
-        imageLocation_input.image(i, channels = 'RGB')
-        imageLocation_output.image(o, channels = 'RGB')
-        time.sleep(0.3)
-
-
-if __name__ == '__main__':
-    cache_dict = cache_input_output(Gs, Zs, NoiseAmp, reals)
-    #call function for front-end display
-    image_display(cache_dict)
