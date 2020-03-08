@@ -45,20 +45,9 @@ dir2save = Path(f'TrainedModels/{input_name}/scale_factor={scale_factor:.6f}_noi
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 ker_size = 3
 num_layer = 5
-nc_z = 3 # noise channel no.
-alpha = 0.1
-beta = 0.95
-scale_start = 1
 
 
 # 2. Load in Models
-# may affect final result
-# opt.min_size = 20
-# opt.mode = 'animation_train'
-# real = functions.read_image(opt)
-# functions.adjust_scales2image(real, opt)
-# dir2trained_model = functions.generate_dir2save(opt)
-
 assert os.path.isdir(dir2save), f'[ERROR] dir not exist: {dir2save}'
 Gs = torch.load(dir2save / 'Gs.pth') # list of generators (by scales)
 Zs = torch.load(dir2save / 'Zs.pth') # list of noise (by scales)
@@ -67,21 +56,30 @@ NoiseAmp = torch.load(dir2save / 'NoiseAmp.pth') # list of NoiseAmp
 
 
 # 3. Generate GIFs (varying beta && start_scale)
-def cache_input_output(Gs, Zs, NoiseAmp, reals, scale_in = None, scale_out = None):
+def cache_input_output(Gs, Zs, NoiseAmp, reals, alpha = 0.1, beta = 0.95, scale_start = 0, device = device):
     """
     cache time-series input at scale i, and time-series output at scale j.
     both i and j start at 0 index
 
-    :output:
+    :param:
+        Gs : list of generators, nn.Module
+        Zs : list of input (input that map to realistic image), np.array uint8
+        NoiseAmp : list of noise injection, np.array uint8
+        reals : list of real image patach, np.array uint8
+        scale_start : 0, scale at which we start to inject noise (for random walk)
+    :return:
         cache_dict -- dict, {
-            'input': list of time-series np.array, 
-            'output': list of time-series np.array
+            0: {
+                'input': list of time-series np.array, 
+                'output': list of time-series np.array
+            },
+            1: {
+                'input': list of time-series np.array, 
+                'output': list of time-series np.array
+            }, ...
             }
     """
-    cache_dict = defaultdict(list)
-    # by default cache first scale input and final scale output
-    scale_in = 0 if scale_in is None else scale_in
-    scale_out = len(Gs) -1 if scale_out is None else scale_out
+    cache_dict = defaultdict(lambda: defaultdict(list))
     # create layer for boarder padding
     pad_image = int(((ker_size - 1) * num_layer) / 2)
     m_image = nn.ZeroPad2d(int(pad_image))
@@ -112,30 +110,27 @@ def cache_input_output(Gs, Zs, NoiseAmp, reals, scale_in = None, scale_out = Non
             I_curr = G(z_in.detach(), I_prev)
             frames_curr.append(I_curr)
             # cache results
-            if scale_n == scale_in:
-                z_in_np = tensor_to_np(z_in)
-                cache_dict['input'].append(z_in_np)
-                #cache_dict['input_x'].append(z_in)
-            if scale_n == scale_out:
-                I_curr = tensor_to_np(I_curr)
-                cache_dict['output'].append(I_curr)
+            z_in_np = tensor_to_np(z_in)
+            cache_dict[scale_n]['input'].append(z_in_np)
+            I_curr_np = tensor_to_np(I_curr)
+            cache_dict[scale_n]['output'].append(I_curr_np)
     return cache_dict
 
 
 #front-end interface
-def image_display(cache_dict):
+def image_display(cache_dict, input_scale = 0, output_scale = 9):
     st.title('Streamlit implementation if SinGAN')
     st.write("Here's our first attempt at implementing backend with streamlit integration for image display")
     imageLocation_input = st.empty()
     imageLocation_output = st.empty()
  
-    for (i, o) in zip(cache_dict['input'], cache_dict['output']):
-        imageLocation_input.image(i)
-        imageLocation_output.image(o, channels="RGB")
+    for (i, o) in zip(cache_dict[input_scale]['input'], cache_dict[output_scale]['output']):
+        imageLocation_input.image(i, channels = 'RGB')
+        imageLocation_output.image(o, channels = 'RGB')
         time.sleep(0.3)
 
 
 if __name__ == '__main__':
-    cache_dict = cache_input_output(Gs, Zs, NoiseAmp, reals, scale_in = None, scale_out = None)
+    cache_dict = cache_input_output(Gs, Zs, NoiseAmp, reals)
     #call function for front-end display
     image_display(cache_dict)
